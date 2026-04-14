@@ -1,0 +1,25 @@
+{
+  "name": "unformal",
+  "version": "0.1.0",
+  "description": "CLI for Unformal — create and manage AI-powered conversational forms",
+  "type": "module",
+  "bin": {
+    "unformal": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": ["dist"],
+  "license": "MIT"
+}
