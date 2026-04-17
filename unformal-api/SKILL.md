@@ -4,7 +4,7 @@ description: Create and manage conversational Pulses via the Unformal API. Repla
 license: MIT
 metadata:
   author: Spark Collective
-  version: "1.1.0"
+  version: "1.2.0"
   website: https://unformal.ai
 allowed-tools: Bash
 ---
@@ -75,6 +75,8 @@ Send the URL to anyone. The AI conducts the conversation. You get structured dat
 | POST | /pulses/:id/publish | Publish a Pulse |
 | GET | /pulses/:id/conversations | List conversations |
 | GET | /conversations/:id | Full conversation + Echo |
+| GET | /pulses/:id/resonance | Aggregate insights across all conversations: themes, consensus, per-question stats (NPS, sliders, rankings, option counts), open-ended highlights, featured quotes |
+| GET | /pulses/:id/analytics | Completion rate, avg duration, field fill rates, sentiment, abandonment |
 | GET | /pulses/:id/export?format=csv|json | Export conversations |
 | GET | /usage | Credit balance + stats |
 
@@ -190,6 +192,82 @@ When a conversation completes, the AI extracts structured data:
 }
 ```
 
+## Resonance — Aggregate Insights
+
+Once a Pulse has 3+ completed conversations, Unformal synthesizes an aggregate view:
+
+```bash
+curl "https://unformal.ai/api/v1/pulses/PULSE_ID/resonance" \
+  -H "Authorization: Bearer unf_YOUR_KEY"
+```
+
+Response (abridged):
+```json
+{
+  "data": {
+    "available": true,
+    "totalConversations": 14,
+    "autoSummary": "WAT has successfully built a highly valued founder community...",
+    "themes": [{"theme": "Community value", "frequency": 12, "sentiment": "positive"}],
+    "consensusPoints": ["Free coworking space is the most valued beta offering"],
+    "divergencePoints": ["Views split on event format — founder stories vs workshops"],
+    "recommendedActions": ["Hire a community manager", "Add call booths"],
+    "sentimentDistribution": {"positive": 64, "neutral": 29, "negative": 7},
+    "questionAggregates": [
+      {
+        "questionIndex": 10,
+        "question": "How likely are you to recommend WAT?",
+        "type": "slider",
+        "stats": {
+          "n": 14, "mean": 7.9, "median": 8, "min": 5, "max": 10,
+          "distribution": [{"bucket": "1-2", "count": 0}, ...],
+          "nps": {"score": 14, "promoters": 5, "passives": 6, "detractors": 3}
+        }
+      },
+      {
+        "questionIndex": 3,
+        "question": "Which WAT channels are you part of?",
+        "type": "multi_select",
+        "stats": {"n": 10, "options": [{"label": "WAT Connect", "count": 10, "percentage": 100}, ...]}
+      },
+      {
+        "questionIndex": 4,
+        "question": "Rank these offerings from most to least valuable:",
+        "type": "ranking",
+        "stats": {"n": 12, "items": [{"label": "Free coworking space", "avgRank": 1.92, "topCount": 5}, ...]}
+      }
+    ],
+    "openEndedHighlights": [
+      {
+        "fieldName": "pain_point",
+        "label": "Pain Point",
+        "description": "The single thing they wish were 10x better",
+        "values": ["Community management gap", "More call booths", ...]
+      }
+    ],
+    "featuredQuotes": ["a community is built around people, if they're not connecting it's not working", ...]
+  }
+}
+```
+
+If < 3 conversations completed, returns `{"available": false, "reason": "..."}`.
+
+### Question aggregate shapes
+
+- `slider` — `{n, mean, median, min, max, distribution[], nps?}`. NPS is auto-detected when a 1-10 (or 0-10) slider question contains "recommend" or similar.
+- `ranking` — `{n, items: [{label, avgRank, topCount, rankCounts[]}]}`. Lower `avgRank` = more valued.
+- `multi_select` / `quick_options` — `{n, options: [{label, count, percentage, shareOfPicks}]}`
+- `image_select` — same as multi_select, plus `images: [{label, url}]`
+
+## Analytics — Completion and Engagement
+
+```bash
+curl "https://unformal.ai/api/v1/pulses/PULSE_ID/analytics" \
+  -H "Authorization: Bearer unf_YOUR_KEY"
+```
+
+Returns `completionRate`, `avgDuration`, `avgFieldCoverage` (how much of the structured output was filled on average), `avgSentiment`, `avgMessageCount`, `avgResponseLength`, per-field `fieldFillRates`, `abandonmentRate` and `commonAbandonmentPoint` (which question tends to cause drop-off).
+
 ## Webhooks
 
 Set `webhookUrl` on a Pulse to receive Echo data on completion:
@@ -239,6 +317,8 @@ npx unformal list
 npx unformal get PULSE_ID
 npx unformal update PULSE_ID --fields "score:number:Lead score 1-10"
 npx unformal conversations PULSE_ID
+npx unformal resonance PULSE_ID        # Aggregate insights (themes, NPS, per-question stats, quotes)
+npx unformal analytics PULSE_ID        # Completion rate, duration, field coverage
 npx unformal usage
 ```
 
