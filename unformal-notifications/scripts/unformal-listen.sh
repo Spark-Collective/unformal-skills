@@ -51,11 +51,13 @@ try:
     if not items:
         print("  (no pulses yet)")
     for p in items:
+        pid = p.get("id", "")
         status = p.get("status", "?")
+        slug = p.get("slug", "")
         intent = (p.get("intention") or "")[:55]
-        print(f"  {p[\"id\"]}  [{status:8}]  /{p.get(\"slug\",\"\"):30}  {intent}")
+        print("  " + pid + "  [" + status.ljust(8) + "]  /" + slug.ljust(30) + "  " + intent)
 except Exception as e:
-    print(f"Error parsing pulses: {e}")
+    print("Error parsing pulses: " + str(e))
 '
   echo ""
   echo "Usage:  unformal-listen <pulse_id>"
