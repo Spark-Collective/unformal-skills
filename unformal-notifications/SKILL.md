@@ -31,62 +31,69 @@ Trigger on any of these:
 
 ---
 
-## Option A — Scheduled Claude Code routine (recommended, runs in the cloud)
+## Option A — Claude Code desktop routine (recommended)
 
-**Best for**: always-on monitoring that survives session restarts and works when your laptop is off. No local setup required.
+**Best for**: always-on monitoring that shows up in your Claude Code desktop sidebar alongside your other routines. Runs locally, can use your local secrets files, and you pick the schedule visually in the desktop UI.
 
-Ask Claude (or any Claude Code–compatible agent) to create a scheduled remote trigger. Example prompt:
+Ask Claude:
 
-> **"Create a Claude Code scheduled routine called `unformal-notifications` that runs hourly. It should call the Unformal API for new completed responses in the past 65 minutes on my Pulse ID `<PULSE_ID>` using my API key `<API_KEY>`, and give me a concise digest if there are any (sentiment + summary + key quotes) or say 'No new responses' if there aren't."**
+> **"Create a Claude Code desktop routine called `unformal-new-responses` that checks for new completed responses on my Unformal Pulse `<PULSE_ID>` using API key `<API_KEY>`. It should track the last-seen timestamp in `~/.unformal/last-seen`, only fetch new responses since that marker, and give me a concise digest (sentiment + summary + key quotes) or say 'No new responses' if there are none."**
 
-Claude will use the `schedule` skill to create a remote trigger with these settings:
-- **Schedule**: `7 * * * *` UTC (every hour at :07 — off-minute to avoid peak cron traffic)
-- **Model**: `claude-sonnet-4-6`
-- **Environment**: any anthropic_cloud environment
-- **Allowed tools**: `Bash`, `Read`
-- **Minimum interval**: 1 hour (Claude Code remote triggers cannot run more frequently)
+### What Claude does
 
-### The exact prompt Claude should put in the routine
+Creates a directory at `~/.claude/scheduled-tasks/<routine-name>/` containing a single `SKILL.md` file with:
 
-```text
-Check for new completed responses on the <pulse name> Pulse (pulseId: <PULSE_ID>) over the past 65 minutes. This routine runs hourly — the 5-minute overlap prevents missing responses near the boundary.
+```markdown
+---
+name: unformal-new-responses
+description: Check for new completed responses on active Unformal Pulses
+---
 
-Run this bash:
-
-SINCE=$(python3 -c "import time; print(int(time.time()*1000) - 65*60*1000)")
-curl -fsS "https://unformal.ai/api/v1/pulses/<PULSE_ID>/conversations?completedSince=$SINCE" \
-  -H "Authorization: Bearer <API_KEY>" > /tmp/unformal_response.json
-
-python3 << 'PYEOF'
-import json
-with open('/tmp/unformal_response.json') as f:
-    d = json.load(f)
-items = d.get('data', [])
-completed = [c for c in items if c.get('status') == 'completed']
-if not completed:
-    print('NONE')
-else:
-    print('FOUND ' + str(len(completed)))
-    for c in completed:
-        echo = c.get('echo') or {}
-        print('---')
-        print('id: ' + str(c.get('id', '')))
-        print('completedAt: ' + str(c.get('completedAt', '')))
-        print('sentiment: ' + str(echo.get('sentimentScore', '?')) + '/10')
-        print('summary: ' + (echo.get('summary') or '(no summary)')[:300])
-        for q in (echo.get('keyQuotes') or [])[:3]:
-            print('quote: ' + str(q)[:200])
-PYEOF
-
-If output is NONE, respond: "No new responses in the past hour." — nothing more.
-If output shows FOUND N, present a clean digest: sentiment badge, one-line summary, 1-2 standout quotes per response. Flag anything with sentiment <= 5 or specific pain signals.
+1. Load secrets: `source /path/to/load-secrets.sh` (optional — if keys are
+   in a local env file, use it; otherwise embed API key inline)
+2. Read marker: `SINCE=$(cat ~/.unformal/last-seen 2>/dev/null || echo 0)`
+3. Fetch new responses:
+   ```bash
+   TMP=$(mktemp)
+   curl -fsS "https://unformal.ai/api/v1/pulses/<PULSE_ID>/conversations?completedSince=$SINCE" \
+     -H "Authorization: Bearer <API_KEY>" > "$TMP"
+   ```
+4. Parse & summarize with Python (read from the temp file to keep heredoc stdin clean):
+   ```bash
+   python3 << PYEOF
+   import json
+   with open("$TMP") as f:
+       d = json.load(f)
+   items = d.get("data", [])
+   completed = [c for c in items if c.get("status") == "completed"]
+   if not completed:
+       print("NONE")
+   else:
+       print("FOUND " + str(len(completed)))
+       for c in completed:
+           echo = c.get("echo") or {}
+           print("---")
+           print("id: " + str(c.get("id", "")))
+           print("sentiment: " + str(echo.get("sentimentScore", "?")) + "/10")
+           print("summary: " + (echo.get("summary") or "(no summary)")[:300])
+           for q in (echo.get("keyQuotes") or [])[:3]:
+               print("quote: " + str(q)[:200])
+   PYEOF
+   ```
+5. Update marker: `python3 -c "import time; print(int(time.time()*1000))" > ~/.unformal/last-seen`
+6. Report briefly if NONE, or present a clean digest if FOUND.
 ```
 
-### Key constraints
+### Setting the schedule
 
-- Remote triggers run in Anthropic's cloud — they cannot read local files, local env vars, or anything on the user's machine. All credentials must be embedded in the prompt.
-- Minimum cadence is 1 hour.
-- Manage your routines at [claude.ai/code/scheduled](https://claude.ai/code/scheduled).
+After creating the SKILL.md file, the routine appears in the Claude Code desktop sidebar under "Routines". **Set the cron schedule from the desktop UI** — click the routine and pick Daily / Weekdays / Custom / etc. The schedule is stored by the desktop app; the SKILL.md only defines the task.
+
+### Key points
+
+- Runs locally on your machine (unlike remote triggers) — has access to `~/` and local secrets
+- Does NOT appear in [claude.ai/code/scheduled](https://claude.ai/code/scheduled) (that's the remote triggers UI — a separate system)
+- Minimum cadence is whatever the desktop UI allows (typically 1 minute+)
+- You can edit the SKILL.md anytime; changes take effect on next run
 
 ---
 
