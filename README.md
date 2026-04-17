@@ -10,7 +10,7 @@ Replace forms with AI-powered conversations. Create a Pulse, share a link, an AI
 
 ### `unformal-api`
 
-Create and manage conversational Pulses via the Unformal REST API. 
+Create and manage conversational Pulses via the Unformal REST API.
 
 **Install with ClawHub:**
 ```bash
@@ -18,6 +18,25 @@ npx clawhub install unformal-api
 ```
 
 **Or copy the skill directory** into your agent's skills folder.
+
+### `unformal-notifications`
+
+Get real-time desktop notifications and in-session alerts when someone completes a Pulse. Includes a shell listener that connects to Unformal's SSE stream and a Claude skill that reads the inbox.
+
+**Install with ClawHub:**
+```bash
+npx clawhub install unformal-notifications
+```
+
+**Or copy the `unformal-notifications/` directory** into your agent's skills folder.
+
+**Quick install of the listener only:**
+```bash
+mkdir -p ~/bin
+curl -fsS https://unformal.ai/unformal-listen.sh > ~/bin/unformal-listen
+chmod +x ~/bin/unformal-listen
+unformal-listen <pulse_id>
+```
 
 ## Quick Start
 
