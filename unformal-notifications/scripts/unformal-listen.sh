@@ -79,36 +79,40 @@ NOTIFY_FN() {
 
 echo "🎧 Listening for new responses on pulse $PULSE_ID..."
 echo "   Events saved to: ~/.unformal/inbox/"
-echo "   Press Ctrl+C to stop."
+echo "   Press Ctrl+C to stop. (auto-reconnects on disconnect)"
 echo ""
 
-# Use process substitution so we can parse event + data line pairs.
-# Resend pattern: "event: <name>" then "data: <json>" then blank line.
-event=""
-curl --no-buffer -fsS -N \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Accept: text/event-stream" \
-  "https://unformal.ai/api/v1/pulses/$PULSE_ID/stream" | \
-while IFS= read -r line; do
-  case "$line" in
-    event:*)
-      event="${line#event: }"
-      event="${event## }"
-      ;;
-    data:*)
-      data="${line#data: }"
-      data="${data## }"
+# Catch Ctrl+C cleanly
+trap 'echo; echo "Stopped."; exit 0' INT TERM
 
-      case "$event" in
-        connected)
-          echo "✓ $(date +%H:%M:%S) connected"
-          ;;
-        conversation.completed)
-          ts=$(date +%Y%m%d-%H%M%S)
-          file="$HOME/.unformal/inbox/${ts}.json"
-          printf '%s' "$data" > "$file"
+# Auto-reconnect loop. Serverless hosts (Vercel, Cloudflare, etc.) cap
+# connection duration, so we reconnect whenever the stream closes.
+while true; do
+  event=""
+  curl --no-buffer -fsS -N \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Accept: text/event-stream" \
+    "https://unformal.ai/api/v1/pulses/$PULSE_ID/stream" 2>/dev/null | \
+  while IFS= read -r line; do
+    case "$line" in
+      event:*)
+        event="${line#event: }"
+        event="${event## }"
+        ;;
+      data:*)
+        data="${line#data: }"
+        data="${data## }"
 
-          summary=$(printf '%s' "$data" | python3 -c '
+        case "$event" in
+          connected)
+            echo "✓ $(date +%H:%M:%S) connected"
+            ;;
+          conversation.completed)
+            ts=$(date +%Y%m%d-%H%M%S)
+            file="$HOME/.unformal/inbox/${ts}.json"
+            printf '%s' "$data" > "$file"
+
+            summary=$(printf '%s' "$data" | python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -119,21 +123,24 @@ except:
     sys.stdout.write("New response received")
 ' 2>/dev/null || echo "New response received")
 
-          echo "✨ $(date +%H:%M:%S) $summary"
-          NOTIFY_FN "Unformal — new response" "$summary"
-          ;;
-        ping)
-          : # keepalive, ignore
-          ;;
-        timeout)
-          echo "⚠  $(date +%H:%M:%S) server timeout — restart to reconnect"
-          exit 0
-          ;;
-      esac
-      event=""
-      ;;
-    "")
-      event=""
-      ;;
-  esac
+            echo "✨ $(date +%H:%M:%S) $summary"
+            NOTIFY_FN "Unformal — new response" "$summary"
+            ;;
+          ping)
+            : # keepalive, ignore
+            ;;
+          timeout)
+            : # server-requested reconnect, outer loop handles it
+            ;;
+        esac
+        event=""
+        ;;
+      "")
+        event=""
+        ;;
+    esac
+  done
+
+  # Connection closed — wait 2s then reconnect (unless killed)
+  sleep 2
 done
