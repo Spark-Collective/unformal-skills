@@ -1,17 +1,17 @@
 ---
 name: unformal-notifications
-description: Get real-time desktop notifications and in-session alerts when someone completes an Unformal Pulse. Use when the user wants to know about new responses, check their Unformal inbox, or set up notifications for a Pulse they are running. Pairs with `unformal-api` for creating Pulses.
+description: Get notified when someone completes an Unformal Pulse — via a scheduled Claude Code routine (hourly), a local desktop listener (real-time macOS notifications), or on-demand API polling. Use when the user wants to know about new responses, check their Unformal inbox, or set up recurring alerts for a Pulse they are running. Pairs with `unformal-api` for creating Pulses.
 license: MIT
 metadata:
   author: Spark Collective
-  version: "1.0.0"
+  version: "1.1.0"
   website: https://unformal.ai
 allowed-tools: Bash
 ---
 
 # Unformal Notifications
 
-Get notified in real-time when someone completes a conversation on one of your Unformal Pulses — via native desktop notifications and an inbox directory Claude Code can read on demand.
+Three ways to get notified about new responses on your Unformal Pulse. Pick one — or combine.
 
 ## When to use this skill
 
@@ -20,43 +20,132 @@ Trigger on any of these:
 - "check my Unformal"
 - "who completed the [pulse name]?"
 - "summarize today's responses"
-- "set up notifications for my Pulse"
+- "set up a routine to check my Pulse"
+- "notify me when responses come in"
 - "did anyone finish the survey?"
 
-## Setup (one-time)
+## Prerequisites
+
+- An Unformal API key — get one at [unformal.ai/studio/settings](https://unformal.ai/studio/settings) or via `POST /api/v1/signup`
+- A Pulse ID — from `GET /api/v1/pulses` or the Studio URL
+
+---
+
+## Option A — Scheduled Claude Code routine (recommended, runs in the cloud)
+
+**Best for**: always-on monitoring that survives session restarts and works when your laptop is off. No local setup required.
+
+Ask Claude (or any Claude Code–compatible agent) to create a scheduled remote trigger. Example prompt:
+
+> **"Create a Claude Code scheduled routine called `unformal-notifications` that runs hourly. It should call the Unformal API for new completed responses in the past 65 minutes on my Pulse ID `<PULSE_ID>` using my API key `<API_KEY>`, and give me a concise digest if there are any (sentiment + summary + key quotes) or say 'No new responses' if there aren't."**
+
+Claude will use the `schedule` skill to create a remote trigger with these settings:
+- **Schedule**: `7 * * * *` UTC (every hour at :07 — off-minute to avoid peak cron traffic)
+- **Model**: `claude-sonnet-4-6`
+- **Environment**: any anthropic_cloud environment
+- **Allowed tools**: `Bash`, `Read`
+- **Minimum interval**: 1 hour (Claude Code remote triggers cannot run more frequently)
+
+### The exact prompt Claude should put in the routine
+
+```text
+Check for new completed responses on the <pulse name> Pulse (pulseId: <PULSE_ID>) over the past 65 minutes. This routine runs hourly — the 5-minute overlap prevents missing responses near the boundary.
+
+Run this bash:
+
+SINCE=$(python3 -c "import time; print(int(time.time()*1000) - 65*60*1000)")
+curl -fsS "https://unformal.ai/api/v1/pulses/<PULSE_ID>/conversations?completedSince=$SINCE" \
+  -H "Authorization: Bearer <API_KEY>" > /tmp/unformal_response.json
+
+python3 << 'PYEOF'
+import json
+with open('/tmp/unformal_response.json') as f:
+    d = json.load(f)
+items = d.get('data', [])
+completed = [c for c in items if c.get('status') == 'completed']
+if not completed:
+    print('NONE')
+else:
+    print('FOUND ' + str(len(completed)))
+    for c in completed:
+        echo = c.get('echo') or {}
+        print('---')
+        print('id: ' + str(c.get('id', '')))
+        print('completedAt: ' + str(c.get('completedAt', '')))
+        print('sentiment: ' + str(echo.get('sentimentScore', '?')) + '/10')
+        print('summary: ' + (echo.get('summary') or '(no summary)')[:300])
+        for q in (echo.get('keyQuotes') or [])[:3]:
+            print('quote: ' + str(q)[:200])
+PYEOF
+
+If output is NONE, respond: "No new responses in the past hour." — nothing more.
+If output shows FOUND N, present a clean digest: sentiment badge, one-line summary, 1-2 standout quotes per response. Flag anything with sentiment <= 5 or specific pain signals.
+```
+
+### Key constraints
+
+- Remote triggers run in Anthropic's cloud — they cannot read local files, local env vars, or anything on the user's machine. All credentials must be embedded in the prompt.
+- Minimum cadence is 1 hour.
+- Manage your routines at [claude.ai/code/scheduled](https://claude.ai/code/scheduled).
+
+---
+
+## Option B — Local desktop listener (real-time macOS notifications)
+
+**Best for**: live in-session awareness while you're actively working. Runs on your machine, shows native OS notifications the second a response comes in.
+
+### One-time install
 
 ```bash
-# 1. Install the listener script
 mkdir -p ~/bin
 curl -fsS https://unformal.ai/unformal-listen.sh > ~/bin/unformal-listen
 chmod +x ~/bin/unformal-listen
-
-# 2. Export your API key (get one at https://unformal.ai/studio/settings)
-export UNFORMAL_API_KEY=unf_xxx
-
-# 3. Find your Pulse ID
-unformal-listen
-
-# 4. Start listening in a spare terminal tab
-unformal-listen <pulse_id>
+export UNFORMAL_API_KEY=unf_xxx   # add to ~/.zshrc for persistence
 ```
 
-Leave the listener running in a tab. Every time someone completes a conversation:
-- A native macOS notification pops up (Linux: `notify-send` if installed)
-- The event JSON is saved to `~/.unformal/inbox/<timestamp>.json`
-
-## Usage patterns
-
-### Pattern 1: Summarize new responses on demand
-
-When the user asks about new responses, check if the listener is running first:
+### Run
 
 ```bash
-# Does the inbox exist and have new files?
-ls -t ~/.unformal/inbox/*.json 2>/dev/null | head -10
+unformal-listen                    # lists your Pulses
+unformal-listen <pulse_id>         # starts listening
 ```
 
-If yes, summarize the newest events:
+Leave it running in a spare terminal tab. Every completion:
+- Pops a native macOS notification (Linux: `notify-send` fallback)
+- Writes the event JSON to `~/.unformal/inbox/<timestamp>.json`
+- Auto-reconnects on server-side timeouts
+
+---
+
+## Option C — On-demand check (no setup)
+
+**Best for**: one-off lookups. The user asks "any new responses?" and you query the API right there.
+
+```bash
+# Responses completed in the last hour
+SINCE=$(python3 -c "import time; print(int(time.time()*1000) - 3600000)")
+curl -fsS "https://unformal.ai/api/v1/pulses/<PULSE_ID>/conversations?completedSince=$SINCE" \
+  -H "Authorization: Bearer $UNFORMAL_API_KEY" | \
+  jq '[.data[] | select(.status=="completed")] | sort_by(.completedAt) | reverse'
+```
+
+For "since last check" semantics with a local marker file:
+
+```bash
+mkdir -p ~/.unformal
+LAST=$(cat ~/.unformal/last-seen 2>/dev/null || echo 0)
+curl -fsS "https://unformal.ai/api/v1/pulses/<PULSE_ID>/conversations?completedSince=$LAST" \
+  -H "Authorization: Bearer $UNFORMAL_API_KEY"
+python3 -c "import time; print(int(time.time()*1000))" > ~/.unformal/last-seen
+```
+
+---
+
+## Usage patterns (when the user asks you to check)
+
+### If Option B (listener) is running
+
+Summarize the newest events from the inbox:
 
 ```bash
 ls -t ~/.unformal/inbox/*.json 2>/dev/null | head -5 | while read f; do
@@ -69,49 +158,29 @@ ls -t ~/.unformal/inbox/*.json 2>/dev/null | head -5 | while read f; do
 done
 ```
 
-Then present to the user as a clean digest (3-5 bullets, most recent first).
+### If no listener is running
 
-### Pattern 2: Fall back to the API (no listener running)
+Fall back to the on-demand API call (Option C above).
 
-If `~/.unformal/inbox/` doesn't exist or is empty, query the API directly:
-
-```bash
-# Responses completed in the last hour (unix ms)
-SINCE=$(node -e "console.log(Date.now() - 3600000)")
-curl -fsS "https://unformal.ai/api/v1/pulses/<pulse_id>/conversations?completedSince=$SINCE" \
-  -H "Authorization: Bearer $UNFORMAL_API_KEY" | \
-  jq '[.data[] | select(.status=="completed")] | sort_by(.completedAt) | reverse'
-```
-
-For "any new responses since last check", use a marker file:
-
-```bash
-LAST=$(cat ~/.unformal/last-seen 2>/dev/null || echo 0)
-curl -fsS "https://unformal.ai/api/v1/pulses/<pulse_id>/conversations?completedSince=$LAST" \
-  -H "Authorization: Bearer $UNFORMAL_API_KEY"
-date +%s%3N > ~/.unformal/last-seen
-```
-
-### Pattern 3: Clear processed events
-
-After Claude has summarized and the user has acted on events, archive them:
+### After acting on events, archive
 
 ```bash
 mkdir -p ~/.unformal/processed
 mv ~/.unformal/inbox/*.json ~/.unformal/processed/ 2>/dev/null || true
 ```
 
-### Pattern 4: Act on new responses
+### What Claude can do with new responses
 
-For each event in the inbox, Claude can:
 - Flag hot leads (high sentiment + specific keywords) and draft follow-ups
 - Detect patterns across multiple completions and propose a Resonance-style summary
-- Save interesting quotes to a notes file the user can reference later
-- Trigger other skills (e.g. draft a Slack message, update a CRM, etc.)
+- Save interesting quotes to a notes file
+- Trigger other skills (draft a Slack message, update a CRM, etc.)
+
+---
 
 ## Inbox event shape
 
-Each file in `~/.unformal/inbox/` is a JSON object from the SSE stream:
+Each file in `~/.unformal/inbox/` (and each element of the API `.data[]` array) looks like:
 
 ```json
 {
@@ -124,19 +193,14 @@ Each file in `~/.unformal/inbox/` is a JSON object from the SSE stream:
     "sentimentScore": 7
   },
   "completedAt": "2026-04-17T10:32:01Z",
-  "metadata": {
-    "duration": 240,
-    "messageCount": 12
-  }
+  "metadata": {"duration": 240, "messageCount": 12}
 }
 ```
 
-## Related skills
+## Related
 
-- `unformal-api` — create and manage Pulses. Use first if the user doesn't have a Pulse running yet.
-
-## Links
-
-- Listener source: https://unformal.ai/unformal-listen.sh
-- SSE stream endpoint docs: https://unformal.ai/agents
-- API key: https://unformal.ai/studio/settings
+- `unformal-api` — create and manage Pulses (use first if no Pulse exists yet)
+- Claude Code `schedule` skill — for Option A remote triggers
+- [Listener source](https://unformal.ai/unformal-listen.sh)
+- [SSE stream docs](https://unformal.ai/agents)
+- [Manage scheduled routines](https://claude.ai/code/scheduled)
