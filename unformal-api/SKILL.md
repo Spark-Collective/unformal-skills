@@ -172,6 +172,51 @@ curl -X PATCH "https://unformal.ai/api/v1/pulses/PULSE_ID" \
   -d '{"maxQuestions": 12, "outputFields": [{"name": "score", "type": "number", "description": "Lead score"}]}'
 ```
 
+## Retrieving raw responses
+
+Three ways to pull individual respondents' answers.
+
+### 1. List with echoes (fast, no transcripts)
+```bash
+curl "https://unformal.ai/api/v1/pulses/PULSE_ID/conversations" \
+  -H "Authorization: Bearer unf_YOUR_KEY"
+```
+Returns `[{id, status, echo, metadata, completedAt, createdAt}]`. Good for scanning who completed and what structured fields were extracted. No transcripts.
+
+### 2. Single conversation with full transcript
+```bash
+curl "https://unformal.ai/api/v1/conversations/CONV_ID" \
+  -H "Authorization: Bearer unf_YOUR_KEY"
+```
+Returns everything: `transcript` (every AI message + user reply, including `responseData` for structured answers like slider values, multi-select picks, ranking orders) and `echo` (extracted structured fields + key quotes + summary).
+
+### 3. Bulk export — everything for all conversations
+```bash
+curl "https://unformal.ai/api/v1/pulses/PULSE_ID/export?format=json" \
+  -H "Authorization: Bearer unf_YOUR_KEY" \
+  -o all-responses.json
+```
+Returns `{pulse, conversations: [...with transcript and echo...], exportedAt, total}`. Use `format=csv` for a flat tabular dump of echo fields.
+
+### Transcript shape
+
+Each transcript message has:
+```json
+{
+  "role": "user" | "assistant",
+  "content": "...",
+  "timestamp": 1776343572188,
+  "uiHint": { "type": "slider", "config": {...} },     // on assistant msgs with structured questions
+  "responseData": { "type": "slider", "data": {"value": 8} }  // on user msgs that answered a structured question
+}
+```
+
+`responseData.type` matches the `ui_hint` type: `slider`, `quick_options`, `multi_select`, `ranking`, `image_select`. The `data` shape:
+- `slider` → `{value: number}`
+- `quick_options` → `{selected: string}` (single)
+- `multi_select` / `image_select` → `{selected: string[]}`
+- `ranking` → `{order: string[]}` (first element = most valued)
+
 ## Echo — Structured Output
 
 When a conversation completes, the AI extracts structured data:
@@ -316,7 +361,9 @@ npx unformal create --intention "Qualify leads" --mode interview --research
 npx unformal list
 npx unformal get PULSE_ID
 npx unformal update PULSE_ID --fields "score:number:Lead score 1-10"
-npx unformal conversations PULSE_ID
+npx unformal conversations PULSE_ID    # Summary table of all conversations
+npx unformal conversation CONV_ID      # One conversation: full transcript, structured answers, echo
+npx unformal export PULSE_ID --format json --output all.json   # All raw responses in one file
 npx unformal resonance PULSE_ID        # Aggregate insights (themes, NPS, per-question stats, quotes)
 npx unformal analytics PULSE_ID        # Completion rate, duration, field coverage
 npx unformal usage

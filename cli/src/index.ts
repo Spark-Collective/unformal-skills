@@ -2,6 +2,7 @@
 
 import { Command } from "commander";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -342,6 +343,147 @@ program
     ]);
 
     printTable(headers, rows);
+  });
+
+// ── conversation (single, full detail) ─────────────────────────────────────────
+
+interface TranscriptMsg {
+  role: "assistant" | "user";
+  content: string;
+  timestamp?: number;
+  responseData?: { type: string; data: any };
+  uiHint?: { type: string; config?: any };
+}
+
+interface ConversationFull {
+  id: string;
+  pulseId: string;
+  status: string;
+  transcript: TranscriptMsg[];
+  echo?: {
+    fields?: Record<string, any>;
+    summary?: string;
+    keyQuotes?: string[];
+    subtext?: string;
+    sentimentScore?: number;
+  };
+  metadata?: Record<string, any>;
+  completedAt?: number;
+  createdAt?: number;
+}
+
+program
+  .command("conversation <conversation-id>")
+  .description("Show a single conversation with full transcript, structured answers, and echo")
+  .option("--json", "Output raw JSON (full conversation object)")
+  .action(async (conversationId: string, opts: { json?: boolean }) => {
+    const c = await api<ConversationFull>(`/conversations/${conversationId}`);
+
+    if (opts.json) {
+      console.log(JSON.stringify(c, null, 2));
+      return;
+    }
+
+    console.log(bold(`\nConversation ${c.id}`));
+    console.log(dim(`  status=${c.status}  messages=${c.transcript?.length ?? 0}`));
+    if (c.completedAt) {
+      console.log(dim(`  completed: ${new Date(c.completedAt).toISOString()}`));
+    }
+    console.log();
+
+    // Structured answers (from responseData)
+    const structured = (c.transcript ?? []).filter((m) => m.role === "user" && m.responseData);
+    if (structured.length) {
+      console.log(bold("Structured answers"));
+      for (const m of structured) {
+        const rd = m.responseData!;
+        const val =
+          rd.data?.selected !== undefined
+            ? Array.isArray(rd.data.selected)
+              ? rd.data.selected.join(", ")
+              : String(rd.data.selected)
+            : rd.data?.value !== undefined
+            ? String(rd.data.value)
+            : rd.data?.order !== undefined
+            ? (rd.data.order as string[]).map((o, i) => `${i + 1}. ${o}`).join("  ")
+            : JSON.stringify(rd.data);
+        console.log(`  ${dim(`[${rd.type}]`)}  ${val}`);
+      }
+      console.log();
+    }
+
+    // Echo structured output
+    if (c.echo?.fields && Object.keys(c.echo.fields).length) {
+      console.log(bold("Extracted fields (echo)"));
+      for (const [k, v] of Object.entries(c.echo.fields)) {
+        const valStr = typeof v === "string" ? v : JSON.stringify(v);
+        console.log(`  ${bold(k + ":")}  ${truncate(valStr, 140)}`);
+      }
+      console.log();
+    }
+
+    if (c.echo?.summary) {
+      console.log(bold("Summary"));
+      console.log(`  ${c.echo.summary}\n`);
+    }
+
+    if (c.echo?.keyQuotes?.length) {
+      console.log(bold("Key quotes"));
+      for (const q of c.echo.keyQuotes) console.log(dim(`  "${truncate(q, 160)}"`));
+      console.log();
+    }
+
+    // Transcript
+    console.log(bold("Transcript"));
+    for (const m of c.transcript ?? []) {
+      const who = m.role === "assistant" ? green("AI ") : bold("You");
+      const content = truncate(String(m.content ?? "").replace(/\s+/g, " "), 200);
+      console.log(`  ${who}  ${content}`);
+    }
+    console.log();
+  });
+
+// ── export (bulk raw responses) ────────────────────────────────────────────────
+
+program
+  .command("export <pulse-id>")
+  .description("Export all conversations (transcripts + echoes) as JSON or CSV")
+  .option("--format <fmt>", "json or csv", "json")
+  .option("--output <path>", "Write to file instead of stdout")
+  .action(async (pulseId: string, opts: { format: string; output?: string }) => {
+    const key = getApiKey();
+    const format = opts.format === "csv" ? "csv" : "json";
+    const url = `${API_BASE}/pulses/${pulseId}/export?format=${format}`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (!res.ok) {
+      console.error(red(`Error ${res.status}: ${await res.text()}`));
+      process.exit(1);
+    }
+
+    const body = await res.text();
+
+    if (opts.output) {
+      const outPath = resolve(opts.output);
+      writeFileSync(outPath, body);
+      // Friendly summary
+      if (format === "json") {
+        try {
+          const parsed = JSON.parse(body);
+          const n = parsed.conversations?.length ?? 0;
+          console.log(green(`✓ Wrote ${n} conversations to ${outPath}`));
+        } catch {
+          console.log(green(`✓ Wrote ${body.length} bytes to ${outPath}`));
+        }
+      } else {
+        const rows = body.split("\n").length - 1;
+        console.log(green(`✓ Wrote ${rows} rows to ${outPath}`));
+      }
+    } else {
+      process.stdout.write(body);
+    }
   });
 
 // ── resonance ─────────────────────────────────────────────────────────────────
