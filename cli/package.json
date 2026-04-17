@@ -1,6 +1,6 @@
 {
-  "name": "unformal",
-  "version": "0.2.0",
+  "name": "@unformal/cli",
+  "version": "0.2.1",
   "description": "CLI for Unformal — create and manage AI-powered conversational forms",
   "type": "module",
   "bin": {
@@ -21,5 +21,15 @@
     "node": ">=18.0.0"
   },
   "files": ["dist"],
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://unformal.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Spark-Collective/unformal-skills.git",
+    "directory": "cli"
+  },
+  "keywords": ["unformal", "api", "cli", "forms", "conversations", "ai", "survey"]
 }

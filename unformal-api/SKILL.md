@@ -355,19 +355,34 @@ Signed with `X-Unformal-Signature` (HMAC-SHA256).
 
 ## CLI (Alternative to API)
 
+Published on npm as `@unformal/cli`. Two ways to use it:
+
 ```bash
-npx unformal init --key unf_YOUR_KEY
-npx unformal create --intention "Qualify leads" --mode interview --research
-npx unformal list
-npx unformal get PULSE_ID
-npx unformal update PULSE_ID --fields "score:number:Lead score 1-10"
-npx unformal conversations PULSE_ID    # Summary table of all conversations
-npx unformal conversation CONV_ID      # One conversation: full transcript, structured answers, echo
-npx unformal export PULSE_ID --format json --output all.json   # All raw responses in one file
-npx unformal resonance PULSE_ID        # Aggregate insights (themes, NPS, per-question stats, quotes)
-npx unformal analytics PULSE_ID        # Completion rate, duration, field coverage
-npx unformal usage
+# One-off (always latest)
+npx @unformal/cli <command>
+
+# Or install globally once, then run as `unformal`
+npm i -g @unformal/cli
+unformal <command>
 ```
+
+Commands:
+
+```bash
+unformal init --key unf_YOUR_KEY
+unformal create --intention "Qualify leads" --mode interview --research
+unformal list
+unformal get PULSE_ID
+unformal update PULSE_ID --fields "score:number:Lead score 1-10"
+unformal conversations PULSE_ID    # Summary table of all conversations
+unformal conversation CONV_ID      # One conversation: full transcript, structured answers, echo
+unformal export PULSE_ID --format json --output all.json   # All raw responses in one file
+unformal resonance PULSE_ID        # Aggregate insights (themes, NPS, per-question stats, quotes)
+unformal analytics PULSE_ID        # Completion rate, duration, field coverage
+unformal usage
+```
+
+Every command supports `--json` for piping structured output into another agent.
 
 ## Credits
 
