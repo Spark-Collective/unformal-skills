@@ -181,7 +181,7 @@ const program = new Command();
 program
   .name("unformal")
   .description("CLI for Unformal — create and manage AI-powered conversational forms")
-  .version("0.3.0");
+  .version("0.3.1");
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
@@ -235,6 +235,8 @@ interface SignupResponse {
   workspace_id: string;
   email: string;
   credits: number;
+  bonus_credits?: number;
+  promo_code?: string | null;
   status: string;
   message?: string;
 }
@@ -243,12 +245,16 @@ program
   .command("signup")
   .description("Create an Unformal account — email in, inactive API key out, 6-digit code to inbox")
   .requiredOption("-e, --email <email>", "Email address for the account")
+  .option("-p, --promo <code>", "Promo/referral code (adds bonus credits)")
   .option("--save", "Save the returned API key to ~/.unformal/config (takes effect after verify)", false)
   .option("--json", "Output raw JSON instead of pretty log", false)
-  .action(async (opts: { email: string; save: boolean; json: boolean }) => {
+  .action(async (opts: { email: string; promo?: string; save: boolean; json: boolean }) => {
+    const body: Record<string, string> = { email: opts.email };
+    if (opts.promo) body.promoCode = opts.promo;
+
     const result = await publicApi<SignupResponse>("/signup", {
       method: "POST",
-      body: JSON.stringify({ email: opts.email }),
+      body: JSON.stringify(body),
     });
 
     if (opts.json) {
@@ -257,7 +263,7 @@ program
       console.log(green("Account created."));
       console.log(`${bold("Email:")}        ${result.email}`);
       console.log(`${bold("Workspace:")}    ${result.workspace_id}`);
-      console.log(`${bold("Credits:")}      ${result.credits}`);
+      console.log(`${bold("Credits:")}      ${result.credits}${result.bonus_credits ? dim(` (+${result.bonus_credits} from ${result.promo_code})`) : ""}`);
       console.log(`${bold("API key:")}      ${result.api_key} ${dim("(inactive until verified)")}`);
       console.log("");
       console.log(dim("A 6-digit code was sent to your inbox. Activate with:"));
