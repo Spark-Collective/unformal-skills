@@ -62,6 +62,29 @@ curl -X POST "https://unformal.ai/api/v1/pulses" \
 - **ClawHub:** `npx clawhub install unformal-api`
 - **Agent Skills Spec:** https://agentskills.io
 
+## Publishing updates
+
+Maintainers only. The helper script publishes each skill in this repo to
+ClawHub if its local version (from `SKILL.md` frontmatter) is ahead of the
+registry. Scoped strictly to this repo — it will not pick up skills that
+live elsewhere on your machine.
+
+```bash
+# One-time: authenticate locally (stores token outside this repo)
+npx clawhub login
+
+# Preview what would be published
+scripts/publish-to-clawhub.sh --dry-run
+
+# Interactive — prompts per skill and asks for a changelog
+scripts/publish-to-clawhub.sh
+
+# Non-interactive
+scripts/publish-to-clawhub.sh --yes --changelog "Release notes..."
+```
+
+Bump the `version:` field in `<skill>/SKILL.md` frontmatter before running.
+
 ## License
 
 MIT
