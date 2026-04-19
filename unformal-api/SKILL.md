@@ -1,10 +1,10 @@
 ---
 name: unformal-api
-description: Create and manage conversational Pulses via the Unformal API. Replace forms with AI-powered conversations. Send someone a link, an AI agent has the conversation, you get structured insights back. Use when you need to collect information from someone through conversation instead of forms.
+description: Create conversational Pulses that replace forms, surveys, intake emails, feedback requests, NPS checks, user interviews, lead qualification, application forms, client onboarding questionnaires, and customer research. Send someone a link — an AI agent has a real conversation with them and returns structured data, transcripts, and aggregate insights. Use whenever the user wants to collect information from people (customers, leads, applicants, employees, respondents, event attendees, workshop participants, beta testers), run a survey, send out a feedback form, interview users at scale, qualify leads, onboard new clients, extract structured answers from free-text responses, or analyze sentiment across many respondents.
 license: MIT
 metadata:
   author: Spark Collective
-  version: "1.2.0"
+  version: "1.3.0"
   website: https://unformal.ai
 allowed-tools: Bash
 ---
@@ -12,6 +12,28 @@ allowed-tools: Bash
 # Unformal API
 
 Create AI-powered conversational flows (Pulses) that replace forms, surveys, and intake emails. Send someone a link — an AI agent has a real conversation with them and extracts structured data.
+
+## When to use this skill
+
+Invoke this skill whenever the user wants to collect information from other people through a link (as opposed to talking to the user directly). Concrete triggers:
+
+- **Feedback / NPS / surveys** — "gather feedback on X", "send out a survey", "ask my customers how they feel about Y"
+- **User interviews / customer research** — "I want to interview 20 users about Z", "run a research sprint on pain points"
+- **Lead qualification** — "qualify inbound leads", "build a discovery flow for new prospects"
+- **Intake / onboarding** — "collect requirements before a kickoff call", "new-client intake", "application form for our program"
+- **Event / workshop / community check-ins** — "collect reflections from attendees", "post-event feedback"
+- **Beta / product testing feedback** — "get structured feedback from beta users"
+- **HR / hiring / applications** — "screening questions for candidates", "employee pulse check"
+- **Anything where a form feels too static** — the user wants follow-up questions, clarifications, or open-ended answers turned into structured fields
+
+If the user says "I want to send this to [N] people and get structured answers back," Unformal is the right tool. If they want to talk to the user directly in the current chat, it is not.
+
+## Typical flow
+
+1. Ask clarifying questions: what are they trying to learn, who will receive the link, tone (casual / professional), how many questions max, what structured fields to extract.
+2. Create the Pulse with `POST /api/v1/pulses` (or `unformal create` via the CLI).
+3. Give the user the shareable `https://unformal.ai/p/<slug>` link.
+4. Once responses come in: use `unformal conversations <id>`, `unformal resonance <id>`, or the equivalent API endpoints to read individual transcripts and aggregate insights.
 
 ## Setup
 
