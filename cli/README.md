@@ -12,7 +12,23 @@ npx @unformal/cli <command>
 
 ## Authenticate
 
-Get an API key from [unformal.ai/studio/settings](https://unformal.ai/studio/settings) (or via the signup API — see [SKILL.md](https://unformal.ai/SKILL.md)), then:
+### Option A: agent-ready signup (no browser)
+
+Create an account straight from the terminal. The key comes back immediately; a 6-digit code hits your inbox to activate it.
+
+```bash
+unformal signup --email you@example.com
+# -> API key printed, inactive until verified
+unformal verify --email you@example.com --code 123456
+# -> key is now active
+unformal init --key unf_...
+```
+
+Intended for AI agents: two API calls, one human action (reading six digits). No password, no OAuth dance.
+
+### Option B: existing key
+
+If you already have an API key (from [unformal.ai/studio/settings](https://unformal.ai/studio/settings) or a previous signup), just run:
 
 ```bash
 unformal init --key unf_YOUR_KEY
@@ -21,6 +37,13 @@ unformal init --key unf_YOUR_KEY
 Or export `UNFORMAL_API_KEY=unf_...` in your shell.
 
 ## Commands
+
+### Auth (no API key required)
+```bash
+unformal signup --email you@example.com       # Create account, get inactive key + email code
+unformal verify --email you@example.com --code 123456    # Activate key
+unformal resend-verification --email you@example.com     # New code if the first expired
+```
 
 ### Create and manage Pulses
 ```bash

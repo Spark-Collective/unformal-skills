@@ -80,6 +80,58 @@ async function api<T = unknown>(
   return json.data;
 }
 
+// Unauthenticated API call (signup / verify / resend-verification).
+// These endpoints don't require a Bearer token.
+async function publicApi<T = unknown>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${API_BASE}${path}`;
+
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    let message: string;
+    try {
+      const parsed = JSON.parse(body);
+      message = parsed.error?.message || parsed.message || body;
+    } catch {
+      message = body;
+    }
+    console.error(red(`Error ${res.status}: ${message}`));
+    process.exit(1);
+  }
+
+  const json = (await res.json()) as ApiResponse<T>;
+  return json.data;
+}
+
+// Read a line from stdin synchronously-ish (for interactive prompts).
+async function prompt(label: string): Promise<string> {
+  process.stdout.write(bold(label));
+  return new Promise<string>((resolve) => {
+    let input = "";
+    process.stdin.setEncoding("utf-8");
+    const onData = (chunk: string) => {
+      input += chunk;
+      if (input.includes("\n")) {
+        process.stdin.pause();
+        process.stdin.off("data", onData);
+        resolve(input.trim());
+      }
+    };
+    process.stdin.on("data", onData);
+    process.stdin.resume();
+  });
+}
+
 // ── Table helpers ─────────────────────────────────────────────────────────────
 
 function truncate(s: string, max: number): string {
@@ -129,7 +181,7 @@ const program = new Command();
 program
   .name("unformal")
   .description("CLI for Unformal — create and manage AI-powered conversational forms")
-  .version("0.2.0");
+  .version("0.3.0");
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
@@ -172,6 +224,90 @@ program
 
     saveApiKey(key);
     console.log(green("API key saved to ~/.unformal/config"));
+  });
+
+// ── signup ────────────────────────────────────────────────────────────────────
+// Agent-ready account creation. Email in, API key out, 6-digit code hits inbox.
+// Run `unformal verify --email <> --code <>` to activate the key.
+
+interface SignupResponse {
+  api_key: string;
+  workspace_id: string;
+  email: string;
+  credits: number;
+  status: string;
+  message?: string;
+}
+
+program
+  .command("signup")
+  .description("Create an Unformal account — email in, inactive API key out, 6-digit code to inbox")
+  .requiredOption("-e, --email <email>", "Email address for the account")
+  .option("--save", "Save the returned API key to ~/.unformal/config (takes effect after verify)", false)
+  .option("--json", "Output raw JSON instead of pretty log", false)
+  .action(async (opts: { email: string; save: boolean; json: boolean }) => {
+    const result = await publicApi<SignupResponse>("/signup", {
+      method: "POST",
+      body: JSON.stringify({ email: opts.email }),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(green("Account created."));
+      console.log(`${bold("Email:")}        ${result.email}`);
+      console.log(`${bold("Workspace:")}    ${result.workspace_id}`);
+      console.log(`${bold("Credits:")}      ${result.credits}`);
+      console.log(`${bold("API key:")}      ${result.api_key} ${dim("(inactive until verified)")}`);
+      console.log("");
+      console.log(dim("A 6-digit code was sent to your inbox. Activate with:"));
+      console.log(`  ${bold(`unformal verify --email ${result.email} --code <code>`)}`);
+    }
+
+    if (opts.save) {
+      saveApiKey(result.api_key);
+      console.log(dim("API key saved to ~/.unformal/config (will work after verification)."));
+    }
+  });
+
+// ── verify ────────────────────────────────────────────────────────────────────
+
+program
+  .command("verify")
+  .description("Verify the 6-digit code sent to your inbox and activate the API key")
+  .requiredOption("-e, --email <email>", "Email used at signup")
+  .option("-c, --code <code>", "6-digit verification code (prompted if omitted)")
+  .action(async (opts: { email: string; code?: string }) => {
+    let code = opts.code;
+    if (!code) {
+      code = await prompt("Enter the 6-digit code from your email: ");
+    }
+    if (!code) {
+      console.error(red("Error: No code provided."));
+      process.exit(1);
+    }
+
+    await publicApi("/verify", {
+      method: "POST",
+      body: JSON.stringify({ email: opts.email, code }),
+    });
+
+    console.log(green("Email verified. Your API key is now active."));
+    console.log(dim("Run `unformal init --key <your-key>` to save it locally, or set UNFORMAL_API_KEY."));
+  });
+
+// ── resend-verification ───────────────────────────────────────────────────────
+
+program
+  .command("resend-verification")
+  .description("Resend the 6-digit verification code to your inbox")
+  .requiredOption("-e, --email <email>", "Email used at signup")
+  .action(async (opts: { email: string }) => {
+    await publicApi("/resend-verification", {
+      method: "POST",
+      body: JSON.stringify({ email: opts.email }),
+    });
+    console.log(green("Verification code sent. Check your inbox."));
   });
 
 // ── create ────────────────────────────────────────────────────────────────────
