@@ -40,9 +40,14 @@ Or export `UNFORMAL_API_KEY=unf_...` in your shell.
 
 ### Auth (no API key required)
 ```bash
+# New account
 unformal signup --email you@example.com       # Create account, get inactive key + email code
 unformal verify --email you@example.com --code 123456    # Activate key
 unformal resend-verification --email you@example.com     # New code if the first expired
+
+# Existing account, key lost or never saved
+unformal login --email you@example.com                   # Email a 6-digit login code
+unformal login --email you@example.com --code 123456 --save    # Verify + save fresh API key
 ```
 
 ### Create and manage Pulses

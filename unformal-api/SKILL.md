@@ -35,7 +35,24 @@ If the user says "I want to send this to [N] people and get structured answers b
 3. Give the user the shareable `https://unformal.ai/p/<slug>` link.
 4. Once responses come in: use `unformal conversations <id>`, `unformal resonance <id>`, or the equivalent API endpoints to read individual transcripts and aggregate insights.
 
-## Setup
+## Setup (existing account)
+
+If the user already has a verified Unformal account but doesn't have their API key saved, use the login flow to mint a fresh one. API keys are only stored hashed, so a previously-issued key can never be recovered.
+```bash
+curl -X POST "https://unformal.ai/api/v1/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "your@email.com"}'
+
+# Check inbox, then:
+curl -X POST "https://unformal.ai/api/v1/login/verify" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "your@email.com", "code": "123456"}'
+# → {"data": {"api_key": "unf_...", "workspace_id": "...", "status": "authenticated"}}
+```
+
+Via the CLI: `unformal login --email your@email.com` (emails code), then `unformal login --email your@email.com --code 123456 --save` (verifies + saves to ~/.unformal/config).
+
+## Setup (new account)
 
 1. Sign up via API (no browser needed):
 ```bash

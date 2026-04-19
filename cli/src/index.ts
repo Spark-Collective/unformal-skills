@@ -181,7 +181,7 @@ const program = new Command();
 program
   .name("unformal")
   .description("CLI for Unformal — create and manage AI-powered conversational forms")
-  .version("0.3.1");
+  .version("0.4.0");
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
@@ -300,6 +300,66 @@ program
 
     console.log(green("Email verified. Your API key is now active."));
     console.log(dim("Run `unformal init --key <your-key>` to save it locally, or set UNFORMAL_API_KEY."));
+  });
+
+// ── login ─────────────────────────────────────────────────────────────────────
+// For existing users who don't have their API key saved locally. Hits a
+// separate 6-digit flow that mints a fresh active key on the user's default
+// workspace (we only store hashes, so we can never reveal a previously-issued
+// key — the right thing is to issue a new one).
+
+interface LoginVerifyResponse {
+  api_key: string;
+  workspace_id: string;
+  email: string;
+  status: string;
+  message?: string;
+}
+
+program
+  .command("login")
+  .description("Get a fresh API key for an existing verified account (6-digit email code)")
+  .requiredOption("-e, --email <email>", "Email of your existing Unformal account")
+  .option("-c, --code <code>", "If provided, verify the code and return the API key in one step")
+  .option("--save", "Save the returned API key to ~/.unformal/config after verification", false)
+  .option("--json", "Output raw JSON instead of pretty log", false)
+  .action(async (opts: { email: string; code?: string; save: boolean; json: boolean }) => {
+    // Step 1: request a code if one wasn't already provided.
+    if (!opts.code) {
+      await publicApi("/login", {
+        method: "POST",
+        body: JSON.stringify({ email: opts.email }),
+      });
+      console.log(green("Login code sent."));
+      console.log(dim("If an account exists for " + opts.email + ", a 6-digit code was emailed. It expires in 15 minutes."));
+      console.log("");
+      console.log(dim("Once you have the code, run:"));
+      console.log(`  ${bold(`unformal login --email ${opts.email} --code <code>${opts.save ? " --save" : ""}`)}`);
+      return;
+    }
+
+    // Step 2: verify + receive API key.
+    const result = await publicApi<LoginVerifyResponse>("/login/verify", {
+      method: "POST",
+      body: JSON.stringify({ email: opts.email, code: opts.code }),
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(green("Logged in."));
+      console.log(`${bold("Email:")}       ${result.email}`);
+      console.log(`${bold("Workspace:")}   ${result.workspace_id}`);
+      console.log(`${bold("API key:")}     ${result.api_key}`);
+    }
+
+    if (opts.save) {
+      saveApiKey(result.api_key);
+      console.log(dim("API key saved to ~/.unformal/config."));
+    } else if (!opts.json) {
+      console.log("");
+      console.log(dim("To save locally: unformal init --key " + result.api_key));
+    }
   });
 
 // ── resend-verification ───────────────────────────────────────────────────────
