@@ -106,9 +106,13 @@ Send the URL to anyone. The AI conducts the conversation. You get structured dat
 |--------|------|-------------|
 | POST | /signup | Create account (no auth required) |
 | POST | /verify | Verify email (no auth required) |
+| POST | /login | Email a 6-digit login code for an existing account (no auth required) |
+| POST | /login/verify | Exchange login code for a fresh API key (no auth required) |
 | POST | /pulses | Create a Pulse |
 | GET | /pulses | List all Pulses |
 | GET | /pulses/:id | Get Pulse details |
+| GET | /pulses/by-slug/:slug | Get full Pulse details by slug (workspace-scoped) |
+| GET | /pulses/public/:slug | Public-facing preview (welcome copy, tone, mode) — no auth |
 | PATCH | /pulses/:id | Update Pulse config (all creation fields supported) |
 | DELETE | /pulses/:id | Archive a Pulse |
 | POST | /pulses/:id/publish | Publish a Pulse |
