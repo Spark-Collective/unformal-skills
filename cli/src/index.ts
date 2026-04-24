@@ -18,6 +18,116 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const API_BASE = "https://unformal.ai/api/v1";
 const CONFIG_DIR = join(homedir(), ".unformal");
 const CONFIG_FILE = join(CONFIG_DIR, "config");
+const VERSION_CACHE_FILE = join(CONFIG_DIR, "version-check.json");
+const VERSION_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+
+// Read version from package.json at runtime so it always matches the
+// published npm tag without us hand-syncing a string literal. We're built
+// as ESM so __dirname isn't defined — resolve via import.meta.url.
+let PKG_VERSION = "unknown";
+try {
+  const pkgUrl = new URL("../package.json", import.meta.url);
+  PKG_VERSION = JSON.parse(readFileSync(pkgUrl, "utf-8")).version ?? "unknown";
+} catch {
+  /* best effort — fallback is "unknown" which always triggers the warning */
+}
+
+// ── Freshness check ───────────────────────────────────────────────────────────
+// On invocation, compare our version against the server's /api/v1/version
+// endpoint. Print a one-line warning if we're behind. Cached 24h so the
+// check runs at most once per day per machine.
+
+interface VersionInfo {
+  cli: { latest: string; upgrade: string };
+  skill: { latest: string; install: string };
+  minimums?: { cliForAllFeatures?: string; skillForAllFeatures?: string };
+}
+
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) > (pb[i] ?? 0)) return 1;
+    if ((pa[i] ?? 0) < (pb[i] ?? 0)) return -1;
+  }
+  return 0;
+}
+
+async function maybeWarnIfStale(): Promise<void> {
+  // Skip if user explicitly muted the check or we're in a CI-like env.
+  if (process.env.UNFORMAL_NO_UPDATE_CHECK === "1") return;
+  if (process.env.CI === "true") return;
+
+  // Use cache if it's fresh.
+  try {
+    if (existsSync(VERSION_CACHE_FILE)) {
+      const cached = JSON.parse(readFileSync(VERSION_CACHE_FILE, "utf-8"));
+      if (cached.checkedAt && Date.now() - cached.checkedAt < VERSION_CHECK_INTERVAL_MS) {
+        emitWarning(cached.info);
+        return;
+      }
+    }
+  } catch {
+    /* bad cache, refetch */
+  }
+
+  // Fetch with a tight timeout so a slow network never blocks the user's
+  // actual command. 1.5s is plenty for a cache-hit JSON response; longer
+  // and we skip silently.
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`${API_BASE}/version`, {
+      signal: controller.signal,
+      headers: { "user-agent": `@unformal/cli@${PKG_VERSION}` },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return;
+    const info: VersionInfo = await res.json();
+    try {
+      mkdirSync(CONFIG_DIR, { recursive: true });
+      writeFileSync(
+        VERSION_CACHE_FILE,
+        JSON.stringify({ checkedAt: Date.now(), info }, null, 2)
+      );
+    } catch {
+      /* best effort */
+    }
+    emitWarning(info);
+  } catch {
+    /* silent — network failures don't interrupt the user */
+  }
+}
+
+function emitWarning(info: VersionInfo): void {
+  if (!info?.cli?.latest) return;
+  const cmp = compareSemver(PKG_VERSION, info.cli.latest);
+  if (cmp >= 0) return; // up to date
+
+  // Distinguish "behind a feature line" (missing newer flags) from a
+  // minor-patch drift. The former is what bit Josh — agent didn't know
+  // about persona / welcomeTitle / allowResearch because its CLI was too
+  // old, and a silent stale warning wouldn't have stood out.
+  const minCli = info.minimums?.cliForAllFeatures;
+  const behindFeatures = minCli && compareSemver(PKG_VERSION, minCli) < 0;
+  if (behindFeatures) {
+    console.warn(
+      red(bold("\n⚠ Your @unformal/cli is missing features.")) +
+        ` You're on ${PKG_VERSION}; ${info.cli.latest} adds flags the API now supports (persona, welcome copy, research, topics).`
+    );
+    console.warn(`  Update: ${bold(info.cli.upgrade)}`);
+    console.warn(
+      `  Refresh skill: ${bold(info.skill.install)}` +
+        dim(" (so your agent knows about the new fields)\n")
+    );
+  } else {
+    console.warn(
+      dim(
+        `\n⚠ @unformal/cli ${info.cli.latest} is available (you have ${PKG_VERSION}). Run: ${info.cli.upgrade}\n`
+      )
+    );
+  }
+}
 
 function getApiKey(): string {
   if (process.env.UNFORMAL_API_KEY) {
@@ -181,7 +291,7 @@ const program = new Command();
 program
   .name("unformal")
   .description("CLI for Unformal — create and manage AI-powered conversational forms")
-  .version("0.4.0");
+  .version(PKG_VERSION);
 
 // ── init ──────────────────────────────────────────────────────────────────────
 
@@ -920,4 +1030,13 @@ program
 
 // ── Run ───────────────────────────────────────────────────────────────────────
 
+// Briefly await the stale-version check so the warning reaches stderr
+// even on fast commands like --help and --version. Hard-capped at 1s so
+// we never noticeably slow a user's actual command. On cache-hit the
+// check is synchronous and returns immediately; only the first run per
+// day (or after cache expiry) pays the network round-trip.
+await Promise.race([
+  maybeWarnIfStale(),
+  new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+]);
 program.parse();
